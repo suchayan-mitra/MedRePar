@@ -1,7 +1,9 @@
 using MedRePar.Services;
 using System;
 using System.Collections.Generic;
+using System.Data.SQLite;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 
 namespace MedRePar
@@ -67,43 +69,80 @@ namespace MedRePar
             {
                 OpenFileDialog openFileDialog = new OpenFileDialog
                 {
-                    Filter = "PDF files (*.pdf)|*.pdf|All files (*.*)|*.*"
+                    Filter = "PDF files (*.pdf)|*.pdf|All files (*.*)|*.*",
+                    Multiselect = true
                 };
 
                 if (openFileDialog.ShowDialog() == DialogResult.OK)
                 {
-                    string filePath = openFileDialog.FileName;
-                    string extractedText = PdfService.ExtractTextFromPdf(filePath);
-                    LoggingService.LogInfo("PDF text extracted successfully.");
+                    string runId = Guid.NewGuid().ToString(); // Generate a unique run ID for this upload session
 
-                    string responseText = await OpenAiService.NormalizeParametersUsingOpenAI(
-                        selectedModel.ApiKey, selectedModel.Url, extractedText, selectedModel.Name);
-                    var normalizedData = NormalizationService.ParseNormalizedData(responseText);
-                    LoggingService.LogInfo("Parameters normalized successfully.");
+                    loadingLabel.Visible = true;
+                    progressBar.Value = 0;
 
-                    DatabaseService.StoreData(dbPath, normalizedData, DateTime.Now.ToString("yyyy-MM-dd"));
-                    MessageBox.Show("PDF data extracted and stored successfully.");
-                    LoggingService.LogInfo("PDF data stored in database successfully.");
+                    int fileCount = openFileDialog.FileNames.Length;
+                    int currentFile = 0;
+                    foreach (string filePath in openFileDialog.FileNames)
+                    {
+                        string extractedText = PdfService.ExtractTextFromPdf(filePath);
+                        LoggingService.LogInfo($"PDF text extracted successfully from {filePath}. And the content is: \n {extractedText}");
+
+                        Dictionary<string, string> normalizedData = await OpenAiService.NormalizeParametersUsingOpenAI(selectedModel, extractedText);
+                        LoggingService.LogInfo("Parameters normalized successfully.");
+                        LoggingService.LogDictionary("Normalized Data", normalizedData);
+
+                        DatabaseService.StoreData(dbPath, normalizedData, DateTime.Now.ToString("yyyy-MM-dd"), runId);
+                        LoggingService.LogInfo($"PDF data from {filePath} stored in database successfully.");
+
+                        currentFile++;
+                        progressBar.Value = (int)((currentFile / (double)fileCount) * 100);
+                    }
+
+                    loadingLabel.Visible = false;
+                    MessageBox.Show("All PDF data extracted and stored successfully.");
                 }
             }
             catch (Exception ex)
             {
+                loadingLabel.Visible = false;
                 LoggingService.LogError("Error during uploadButton_Click", ex);
-                MessageBox.Show("An error occurred while processing the PDF. Please check the log file for more details.");
+                MessageBox.Show("An error occurred while processing the PDFs. Please check the log file for more details.");
             }
         }
 
-        private void trendButton_Click(object sender, EventArgs e)
+        private async void trendButton_Click(object sender, EventArgs e)
         {
             try
             {
-                ChartService.GenerateTrendChart(dbPath, "Total Cholesterol", chart);
+                loadingLabel.Visible = true;
+                progressBar.Value = 0;
+
+                // Optionally, allow the user to select a run ID for visualization
+                string runId = GetLatestRunId(); // This could be a method to get the latest run ID or a user-selected one
+
+                await Task.Run(() => ChartService.GenerateTrendChart(dbPath, "Total Cholesterol", chart, runId));
+
+                progressBar.Value = 100;
+                loadingLabel.Visible = false;
                 LoggingService.LogInfo("Trend chart generated successfully.");
             }
             catch (Exception ex)
             {
+                loadingLabel.Visible = false;
                 LoggingService.LogError("Error during trendButton_Click", ex);
                 MessageBox.Show("An error occurred while generating the trend chart. Please check the log file for more details.");
+            }
+        }
+
+        private string GetLatestRunId()
+        {
+            // Implement logic to retrieve the latest run ID from the database, or allow user selection
+            using (SQLiteConnection conn = new SQLiteConnection($"Data Source={dbPath};Version=3;"))
+            {
+                conn.Open();
+                string sql = "SELECT run_id FROM medical_data ORDER BY date DESC LIMIT 1";
+                SQLiteCommand command = new SQLiteCommand(sql, conn);
+                return command.ExecuteScalar()?.ToString();
             }
         }
     }

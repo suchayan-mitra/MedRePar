@@ -1,25 +1,22 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using System.Windows.Forms.DataVisualization.Charting;
 using System.Data.SQLite;
+using System.Windows.Forms.DataVisualization.Charting;
 
 namespace MedRePar.Services
 {
     internal class ChartService
     {
-        public static void GenerateTrendChart(string dbPath, string parameter, Chart chart)
+        public static void GenerateTrendChart(string dbPath, string parameter, Chart chart, string runId)
         {
             try
             {
                 using (SQLiteConnection conn = new SQLiteConnection($"Data Source={dbPath};Version=3;"))
                 {
                     conn.Open();
-                    string sql = "SELECT date, value FROM medical_data WHERE parameter = @parameter ORDER BY date";
+                    string sql = "SELECT date, value FROM medical_data WHERE parameter = @parameter AND run_id = @run_id ORDER BY date";
                     SQLiteCommand command = new SQLiteCommand(sql, conn);
                     command.Parameters.AddWithValue("@parameter", parameter);
+                    command.Parameters.AddWithValue("@run_id", runId);
                     SQLiteDataReader reader = command.ExecuteReader();
 
                     chart.Series.Clear();
@@ -30,7 +27,7 @@ namespace MedRePar.Services
 
                     while (reader.Read())
                     {
-                        series.Points.AddXY(reader["date"], reader["value"]);
+                        series.Points.AddXY(Convert.ToDateTime(reader["date"]), Convert.ToDouble(reader["value"]));
                     }
 
                     chart.Series.Add(series);

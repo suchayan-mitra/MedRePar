@@ -32,5 +32,14 @@ namespace MedRePar.Services
         {
             Logger.Warn(message);
         }
+
+        public static void LogDictionary(string title, Dictionary<string, string> dictionary)
+        {
+            Logger.Info($"{title}:");
+            foreach (var kvp in dictionary)
+            {
+                Logger.Info($"{kvp.Key}: {kvp.Value}");
+            }
+        }
     }
 }

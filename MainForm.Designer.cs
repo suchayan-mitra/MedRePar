@@ -7,6 +7,8 @@
         private System.Windows.Forms.Button uploadButton;
         private System.Windows.Forms.Button trendButton;
         private System.Windows.Forms.DataVisualization.Charting.Chart chart;
+        private System.Windows.Forms.Label loadingLabel;
+        private System.Windows.Forms.ProgressBar progressBar;
 
         protected override void Dispose(bool disposing)
         {
@@ -23,6 +25,8 @@
             this.uploadButton = new System.Windows.Forms.Button();
             this.trendButton = new System.Windows.Forms.Button();
             this.chart = new System.Windows.Forms.DataVisualization.Charting.Chart();
+            this.loadingLabel = new System.Windows.Forms.Label();
+            this.progressBar = new System.Windows.Forms.ProgressBar();
             ((System.ComponentModel.ISupportInitialize)(this.chart)).BeginInit();
             this.SuspendLayout();
             // 
@@ -62,18 +66,36 @@
                                 System.Windows.Forms.AnchorStyles.Bottom |
                                 System.Windows.Forms.AnchorStyles.Left |
                                 System.Windows.Forms.AnchorStyles.Right;
-
             this.chart.Location = new System.Drawing.Point(12, 97);
             this.chart.Name = "chart";
             this.chart.Size = new System.Drawing.Size(760, 453);
             this.chart.TabIndex = 3;
             this.chart.Text = "chart";
             // 
+            // loadingLabel
+            // 
+            this.loadingLabel.AutoSize = true;
+            this.loadingLabel.Location = new System.Drawing.Point(12, 100);
+            this.loadingLabel.Name = "loadingLabel";
+            this.loadingLabel.Size = new System.Drawing.Size(69, 13);
+            this.loadingLabel.TabIndex = 4;
+            this.loadingLabel.Text = "Loading...";
+            this.loadingLabel.Visible = false; // Hide initially
+            //
+            // progressBar
+            //
+            this.progressBar.Location = new System.Drawing.Point(12, 120);
+            this.progressBar.Name = "progressBar";
+            this.progressBar.Size = new System.Drawing.Size(300, 23);
+            this.progressBar.TabIndex = 5;
+            // 
             // MainForm
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.ClientSize = new System.Drawing.Size(784, 561);
+            this.Controls.Add(this.progressBar);
+            this.Controls.Add(this.loadingLabel);
             this.Controls.Add(this.chart);
             this.Controls.Add(this.trendButton);
             this.Controls.Add(this.uploadButton);
