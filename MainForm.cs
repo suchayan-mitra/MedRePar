@@ -137,18 +137,12 @@ namespace MedRePar
 
                 await Task.Run(() =>
                 {
-                    foreach (var parameter in parameters)
+                    List<string> generatedImagePaths = ChartService.GenerateTrendCharts(dbPath, parameters, chart, runId);
+                    imagePaths.AddRange(generatedImagePaths);
+                    this.Invoke(new Action(() =>
                     {
-                        string imagePath = ChartService.GenerateTrendChart(dbPath, parameter, chart, runId);
-                        if (!string.IsNullOrEmpty(imagePath))
-                        {
-                            imagePaths.Add(imagePath);
-                        }
-                        this.Invoke(new Action(() =>
-                        {
-                            progressBar.Value += progressIncrement;
-                        }));
-                    }
+                        progressBar.Value += progressIncrement;
+                    }));
                 });
 
                 // Save all images to a single PDF
