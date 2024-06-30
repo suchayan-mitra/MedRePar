@@ -82,10 +82,11 @@ namespace MedRePar.Services
 
                             foreach (var item in ((JProperty)category).Value.Children<JProperty>())
                             {
-                                string parameterName = item.Name;
+                                string parameterName = NormalizeParameterName(item.Name);
+                                string aliasName = item.Name;
                                 string value = item.Value.ToString();
 
-                                int parameterId = GetParameterId(conn, categoryId, parameterName);
+                                int parameterId = GetParameterId(conn, categoryId, parameterName, aliasName);
 
                                 string sql = "INSERT INTO medical_data (parameter_id, value, date, run_id) VALUES (@parameter_id, @value, @date, @run_id)";
                                 SQLiteCommand command = new SQLiteCommand(sql, conn);
@@ -107,6 +108,11 @@ namespace MedRePar.Services
                 LoggingService.LogError("Error storing data in database", ex);
                 throw;
             }
+        }
+
+        private static string NormalizeParameterName(string parameterName)
+        {
+            return parameterName.ToLower().Replace(" ", "").Replace("-", "").Replace(":", "");
         }
 
         private static int GetCategoryId(SQLiteConnection conn, string categoryName)
@@ -131,8 +137,11 @@ namespace MedRePar.Services
             }
         }
 
-        private static int GetParameterId(SQLiteConnection conn, int categoryId, string parameterName)
+        private static int GetParameterId(SQLiteConnection conn, int categoryId, string parameterName, string aliasName)
         {
+            // Normalize the parameter name
+            parameterName = NormalizeParameterName(parameterName);
+
             // Check if the parameter already exists
             string sql = "SELECT id FROM parameters WHERE category_id = @category_id AND (name = @name OR alias LIKE '%' || @name || '%')";
             SQLiteCommand command = new SQLiteCommand(sql, conn);
@@ -147,10 +156,11 @@ namespace MedRePar.Services
             else
             {
                 // Insert new parameter
-                string insertSql = "INSERT INTO parameters (category_id, name) VALUES (@category_id, @name); SELECT last_insert_rowid()";
+                string insertSql = "INSERT INTO parameters (category_id, name, alias) VALUES (@category_id, @name, @alias); SELECT last_insert_rowid()";
                 SQLiteCommand insertCommand = new SQLiteCommand(insertSql, conn);
                 insertCommand.Parameters.AddWithValue("@category_id", categoryId);
                 insertCommand.Parameters.AddWithValue("@name", parameterName);
+                insertCommand.Parameters.AddWithValue("@alias", aliasName);
                 return Convert.ToInt32(insertCommand.ExecuteScalar());
             }
         }
@@ -187,7 +197,7 @@ namespace MedRePar.Services
                 using (SQLiteConnection conn = new SQLiteConnection($"Data Source={dbPath};Version=3;"))
                 {
                     conn.Open();
-                    string sql = @"SELECT medical_data.id, parameters.name as parameter, medical_data.value, medical_data.date, medical_data.run_id
+                    string sql = @"SELECT medical_data.id, parameters.name as parameter, parameters.alias as alias, medical_data.value, medical_data.date, medical_data.run_id
                            FROM medical_data
                            INNER JOIN parameters ON medical_data.parameter_id = parameters.id";
                     SQLiteCommand command = new SQLiteCommand(sql, conn);
@@ -204,7 +214,7 @@ namespace MedRePar.Services
                     // Print the data
                     while (reader.Read())
                     {
-                        LoggingService.LogInfo($"ID: {reader["id"]}, Parameter: {reader["parameter"]}, Value: {reader["value"]}, Date: {reader["date"]}, Run ID: {reader["run_id"]}");
+                        LoggingService.LogInfo($"ID: {reader["id"]}, Parameter: {reader["parameter"]}, Alias: {reader["alias"]}, Value: {reader["value"]}, Date: {reader["date"]}, Run ID: {reader["run_id"]}");
                     }
                 }
             }
@@ -214,7 +224,6 @@ namespace MedRePar.Services
                 throw;
             }
         }
-
 
         private static string ExtractJsonContent(string jsonString)
         {

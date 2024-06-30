@@ -27,12 +27,12 @@ namespace MedRePar.Services
                     {
                         conn.Open();
                         string sql = @"
-                            SELECT medical_data.date, medical_data.value, categories.name as category
-                            FROM medical_data
-                            INNER JOIN parameters ON medical_data.parameter_id = parameters.id
-                            INNER JOIN categories ON parameters.category_id = categories.id
-                            WHERE parameters.name LIKE @parameter AND medical_data.run_id = @run_id 
-                            ORDER BY medical_data.date";
+                    SELECT medical_data.date, medical_data.value, categories.name as category
+                    FROM medical_data
+                    INNER JOIN parameters ON medical_data.parameter_id = parameters.id
+                    INNER JOIN categories ON parameters.category_id = categories.id
+                    WHERE parameters.name LIKE @parameter AND medical_data.run_id = @run_id 
+                    ORDER BY medical_data.date";
 
                         LoggingService.LogInfo($"Executing SQL Query: {sql}");
                         SQLiteCommand command = new SQLiteCommand(sql, conn);
@@ -48,10 +48,11 @@ namespace MedRePar.Services
                         while (reader.Read())
                         {
                             DateTime date = DateTime.Parse(reader["date"].ToString());
+                            string rawValue = reader["value"].ToString();
                             double value;
-                            if (!double.TryParse(reader["value"].ToString().Split(' ')[0], out value))
+                            if (!TryParseDouble(rawValue, out value))
                             {
-                                LoggingService.LogWarn($"Skipping invalid value: {reader["value"]}");
+                                LoggingService.LogWarn($"Skipping invalid value: {rawValue}");
                                 continue;
                             }
                             string category = reader["category"].ToString();
@@ -99,6 +100,7 @@ namespace MedRePar.Services
                             foreach (var dataPoint in dataPointsByCategory[category])
                             {
                                 series.Points.AddXY(dataPoint.date, dataPoint.value);
+                                LoggingService.LogInfo($"Plotting: {category} - Date: {dataPoint.date}, Value: {dataPoint.value}");
                             }
 
                             chart.Series.Add(series);
@@ -136,6 +138,14 @@ namespace MedRePar.Services
 
             return imagePaths;
         }
+
+        private static bool TryParseDouble(string input, out double result)
+        {
+            input = new string(input.Where(c => char.IsDigit(c) || c == '.' || c == '-').ToArray());
+            return double.TryParse(input, out result);
+        }
+
+
 
         public static string SaveImagesAsPdf(List<string> imagePaths)
         {
