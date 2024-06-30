@@ -27,6 +27,10 @@ namespace MedRePar
                 DatabaseService.InitializeDb(dbPath);
                 LoggingService.LogInfo("Database initialized successfully.");
 
+                // Print table structure and data for debugging
+                DatabaseService.PrintTableStructure(dbPath);
+                DatabaseService.PrintAllTableData(dbPath);
+
                 // Load AI models from App.config
                 aiModels = AIModelConfig.LoadAIModels();
                 LoggingService.LogInfo("AI models loaded successfully.");
@@ -100,6 +104,9 @@ namespace MedRePar
 
                     loadingLabel.Visible = false;
                     MessageBox.Show("All PDF data extracted and stored successfully.");
+
+                    // Print table data after storing for verification
+                    DatabaseService.PrintAllTableData(dbPath);
                 }
             }
             catch (Exception ex)
