@@ -124,32 +124,77 @@ namespace MedRePar
                 loadingLabel.Visible = true;
                 progressBar.Value = 0;
 
-                // Optionally, allow the user to select a run ID for visualization
-                string runId = GetLatestRunId(); // This could be a method to get the latest run ID or a user-selected one
+                // Get the latest run ID
+                string runId = GetLatestRunId();
+
+                // Get all parameters for the latest run
+                List<string> parameters = GetParametersForRunId(runId);
+
+                // Update progress bar increment value based on the number of parameters
+                int progressIncrement = 100 / parameters.Count;
+
+                List<string> imagePaths = new List<string>(); // List to store image paths
 
                 await Task.Run(() =>
                 {
-                    this.Invoke(new Action(() =>
+                    foreach (var parameter in parameters)
                     {
-                        ChartService.GenerateTrendChart(dbPath, "Total Cholesterol", chart, runId);
-                    }));
+                        string imagePath = ChartService.GenerateTrendChart(dbPath, parameter, chart, runId);
+                        if (!string.IsNullOrEmpty(imagePath))
+                        {
+                            imagePaths.Add(imagePath);
+                        }
+                        this.Invoke(new Action(() =>
+                        {
+                            progressBar.Value += progressIncrement;
+                        }));
+                    }
                 });
+
+                // Save all images to a single PDF
+                string pdfPath = ChartService.SaveImagesAsPdf(imagePaths);
+                ChartService.OpenPdf(pdfPath);
 
                 progressBar.Value = 100;
                 loadingLabel.Visible = false;
-                LoggingService.LogInfo("Trend chart generated successfully.");
+                LoggingService.LogInfo("Trend charts generated and saved successfully.");
             }
             catch (Exception ex)
             {
                 loadingLabel.Visible = false;
                 LoggingService.LogError("Error during trendButton_Click", ex);
-                MessageBox.Show("An error occurred while generating the trend chart. Please check the log file for more details.");
+                MessageBox.Show("An error occurred while generating the trend charts. Please check the log file for more details.");
             }
+        }
+
+        private List<string> GetParametersForRunId(string runId)
+        {
+            List<string> parameters = new List<string>();
+
+            using (SQLiteConnection conn = new SQLiteConnection($"Data Source={dbPath};Version=3;"))
+            {
+                conn.Open();
+                string sql = @"
+            SELECT DISTINCT parameters.name
+            FROM medical_data
+            INNER JOIN parameters ON medical_data.parameter_id = parameters.id
+            WHERE medical_data.run_id = @run_id";
+
+                SQLiteCommand command = new SQLiteCommand(sql, conn);
+                command.Parameters.AddWithValue("@run_id", runId);
+
+                SQLiteDataReader reader = command.ExecuteReader();
+                while (reader.Read())
+                {
+                    parameters.Add(reader["name"].ToString());
+                }
+            }
+
+            return parameters;
         }
 
         private string GetLatestRunId()
         {
-            // Implement logic to retrieve the latest run ID from the database, or allow user selection
             using (SQLiteConnection conn = new SQLiteConnection($"Data Source={dbPath};Version=3;"))
             {
                 conn.Open();
