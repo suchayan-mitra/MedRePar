@@ -7,6 +7,7 @@ using System.Windows.Forms.DataVisualization.Charting;
 using PdfSharp.Drawing;
 using PdfSharp.Pdf;
 using System.Diagnostics;
+using System.Windows.Forms;
 
 namespace MedRePar.Services
 {
@@ -16,12 +17,19 @@ namespace MedRePar.Services
         {
             try
             {
-                List<(DateTime date, double value)> dataPoints = new List<(DateTime date, double value)>();
+                Dictionary<string, List<(DateTime date, double value)>> dataPointsByCategory = new Dictionary<string, List<(DateTime date, double value)>>();
 
                 using (SQLiteConnection conn = new SQLiteConnection($"Data Source={dbPath};Version=3;"))
                 {
                     conn.Open();
-                    string sql = "SELECT date, value FROM medical_data WHERE parameter LIKE @parameter AND run_id = @run_id ORDER BY date";
+                    string sql = @"
+                        SELECT medical_data.date, medical_data.value, categories.name as category
+                        FROM medical_data
+                        INNER JOIN parameters ON medical_data.parameter_id = parameters.id
+                        INNER JOIN categories ON parameters.category_id = categories.id
+                        WHERE parameters.name LIKE @parameter AND medical_data.run_id = @run_id 
+                        ORDER BY medical_data.date";
+
                     LoggingService.LogInfo($"Executing SQL Query: {sql}");
                     SQLiteCommand command = new SQLiteCommand(sql, conn);
                     command.Parameters.AddWithValue("@parameter", "%" + parameter + "%");
@@ -33,8 +41,15 @@ namespace MedRePar.Services
                     {
                         DateTime date = DateTime.Parse(reader["date"].ToString());
                         double value = double.Parse(reader["value"].ToString());
-                        dataPoints.Add((date, value));
-                        LoggingService.LogInfo($"Date: {date}, Value: {value}");
+                        string category = reader["category"].ToString();
+
+                        if (!dataPointsByCategory.ContainsKey(category))
+                        {
+                            dataPointsByCategory[category] = new List<(DateTime date, double value)>();
+                        }
+
+                        dataPointsByCategory[category].Add((date, value));
+                        LoggingService.LogInfo($"Category: {category}, Date: {date}, Value: {value}");
                     }
                 }
 
@@ -42,18 +57,26 @@ namespace MedRePar.Services
                 chart.BeginInvoke(new Action(() =>
                 {
                     chart.Series.Clear();
-                    Series series = new Series(parameter)
-                    {
-                        ChartType = SeriesChartType.Line,
-                        XValueType = ChartValueType.Date
-                    };
+                    chart.ChartAreas.Clear();
+                    ChartArea chartArea = new ChartArea("MainArea");
+                    chart.ChartAreas.Add(chartArea);
 
-                    foreach (var dataPoint in dataPoints)
+                    foreach (var category in dataPointsByCategory.Keys)
                     {
-                        series.Points.AddXY(dataPoint.date, dataPoint.value);
+                        Series series = new Series($"{category} - {parameter}")
+                        {
+                            ChartType = SeriesChartType.Line,
+                            XValueType = ChartValueType.Date
+                        };
+
+                        foreach (var dataPoint in dataPointsByCategory[category])
+                        {
+                            series.Points.AddXY(dataPoint.date, dataPoint.value);
+                        }
+
+                        chart.Series.Add(series);
                     }
 
-                    chart.Series.Add(series);
                     chart.Invalidate(); // Refresh the chart
 
                     // Save the chart as an image

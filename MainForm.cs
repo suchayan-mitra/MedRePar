@@ -127,7 +127,13 @@ namespace MedRePar
                 // Optionally, allow the user to select a run ID for visualization
                 string runId = GetLatestRunId(); // This could be a method to get the latest run ID or a user-selected one
 
-                await Task.Run(() => ChartService.GenerateTrendChart(dbPath, "Total Cholesterol", chart, runId));
+                await Task.Run(() =>
+                {
+                    this.Invoke(new Action(() =>
+                    {
+                        ChartService.GenerateTrendChart(dbPath, "Total Cholesterol", chart, runId);
+                    }));
+                });
 
                 progressBar.Value = 100;
                 loadingLabel.Visible = false;
