@@ -27,7 +27,6 @@ namespace MedRePar.Services
                     GenerateCategoryChart(category.Key, category.Value, chart, imagePaths);
                 }
 
-                // Generate composite chart for each category
                 foreach (var category in dataByCategory)
                 {
                     GenerateCompositeChart(category.Key, category.Value, chart, imagePaths);
@@ -42,15 +41,15 @@ namespace MedRePar.Services
             return imagePaths;
         }
 
-        private static Dictionary<string, Dictionary<string, List<(DateTime date, double value)>>> GetDataByCategory(string dbPath, List<string> parameters, string runId)
+        private static Dictionary<string, Dictionary<string, (List<(DateTime date, double value)>, string alias)>> GetDataByCategory(string dbPath, List<string> parameters, string runId)
         {
-            var dataByCategory = new Dictionary<string, Dictionary<string, List<(DateTime date, double value)>>>();
+            var dataByCategory = new Dictionary<string, Dictionary<string, (List<(DateTime date, double value)>, string alias)>>();
 
             using (SQLiteConnection conn = new SQLiteConnection($"Data Source={dbPath};Version=3;"))
             {
                 conn.Open();
                 string sql = @"
-                    SELECT medical_data.date, medical_data.value, parameters.name as parameter, categories.name as category
+                    SELECT medical_data.date, medical_data.value, parameters.name as parameter, parameters.alias as alias, categories.name as category
                     FROM medical_data
                     INNER JOIN parameters ON medical_data.parameter_id = parameters.id
                     INNER JOIN categories ON parameters.category_id = categories.id
@@ -70,19 +69,20 @@ namespace MedRePar.Services
                         DateTime date = DateTime.Parse(reader["date"].ToString());
                         string rawValue = reader["value"].ToString();
                         string parameterName = reader["parameter"].ToString();
+                        string alias = reader["alias"].ToString();
                         string category = reader["category"].ToString();
 
                         if (double.TryParse(rawValue.Split(' ')[0], out double value))
                         {
                             if (!dataByCategory.ContainsKey(category))
                             {
-                                dataByCategory[category] = new Dictionary<string, List<(DateTime date, double value)>>();
+                                dataByCategory[category] = new Dictionary<string, (List<(DateTime date, double value)>, string alias)>();
                             }
                             if (!dataByCategory[category].ContainsKey(parameterName))
                             {
-                                dataByCategory[category][parameterName] = new List<(DateTime date, double value)>();
+                                dataByCategory[category][parameterName] = (new List<(DateTime date, double value)>(), alias);
                             }
-                            dataByCategory[category][parameterName].Add((date, value));
+                            dataByCategory[category][parameterName].Item1.Add((date, value));
                         }
                         else
                         {
@@ -95,11 +95,11 @@ namespace MedRePar.Services
             return dataByCategory;
         }
 
-        private static void GenerateCategoryChart(string category, Dictionary<string, List<(DateTime date, double value)>> data, Chart chart, List<string> imagePaths)
+        private static void GenerateCategoryChart(string category, Dictionary<string, (List<(DateTime date, double value)>, string alias)> data, Chart chart, List<string> imagePaths)
         {
             foreach (var parameter in data)
             {
-                if (parameter.Value.Count == 0)
+                if (parameter.Value.Item1.Count == 0)
                 {
                     LoggingService.LogWarn($"No valid numeric data points for {category} - {parameter.Key}. Skipping chart generation.");
                     continue;
@@ -119,46 +119,57 @@ namespace MedRePar.Services
                         chartArea.AxisX.LabelStyle.Format = "yyyy-MM-dd";
                         chartArea.AxisX.IntervalType = DateTimeIntervalType.Auto;
                         chartArea.AxisX.LabelStyle.Angle = -45;
+                        chartArea.AxisX.LabelStyle.Font = new Font("Arial", 8);
+                        chartArea.AxisY.LabelStyle.Font = new Font("Arial", 8);
 
-                        Series series = new Series("DataSeries")
+                        Series series = new Series(parameter.Value.Item2)
                         {
                             ChartType = SeriesChartType.Line,
-                            XValueType = ChartValueType.Date
+                            XValueType = ChartValueType.Date,
+                            MarkerStyle = MarkerStyle.Circle,
+                            MarkerSize = 8
                         };
 
-                        foreach (var dataPoint in parameter.Value.OrderBy(d => d.date))
+                        foreach (var dataPoint in parameter.Value.Item1.OrderBy(d => d.date))
                         {
                             series.Points.AddXY(dataPoint.date, dataPoint.value);
                         }
 
+                        series.IsValueShownAsLabel = true;
+                        series.LabelFormat = "F2";
+                        series.Font = new Font("Arial", 8);
+
                         chart.Series.Add(series);
 
                         chart.Titles.Clear();
-                        chart.Titles.Add(new Title($"{category} - {parameter.Key}", Docking.Top, new Font("Arial", 12), Color.Black));
+                        chart.Titles.Add(new Title($"{category} - {parameter.Value.Item2}", Docking.Top, new Font("Arial", 14, FontStyle.Bold), Color.Black));
+
+                        chart.Legends.Clear();
+                        chart.Legends.Add(new Legend() { Font = new Font("Arial", 10) });
                     });
 
                     string imagePath = SaveChartAsImage(chart, $"{category}_{parameter.Key}");
                     if (!string.IsNullOrEmpty(imagePath))
                     {
                         imagePaths.Add(imagePath);
-                        LoggingService.LogInfo($"Chart generated for {category} - {parameter.Key}");
+                        LoggingService.LogInfo($"Chart generated for {category} - {parameter.Value.Item2}");
                     }
                     else
                     {
-                        LoggingService.LogWarn($"Failed to generate chart for {category} - {parameter.Key}");
+                        LoggingService.LogWarn($"Failed to generate chart for {category} - {parameter.Value.Item2}");
                     }
                 }
                 catch (Exception ex)
                 {
-                    LoggingService.LogError($"Error generating chart for {category} - {parameter.Key}: {ex.Message}");
+                    LoggingService.LogError($"Error generating chart for {category} - {parameter.Value.Item2}: {ex.Message}");
                     LoggingService.LogError($"Stack Trace: {ex.StackTrace}");
                 }
             }
         }
 
-        private static void GenerateCompositeChart(string category, Dictionary<string, List<(DateTime date, double value)>> data, Chart chart, List<string> imagePaths)
+        private static void GenerateCompositeChart(string category, Dictionary<string, (List<(DateTime date, double value)>, string alias)> data, Chart chart, List<string> imagePaths)
         {
-            if (data.All(d => d.Value.Count == 0))
+            if (data.All(d => d.Value.Item1.Count == 0))
             {
                 LoggingService.LogWarn($"No valid numeric data points for any parameter in {category}. Skipping composite chart generation.");
                 return;
@@ -178,20 +189,22 @@ namespace MedRePar.Services
                     chartArea.AxisX.LabelStyle.Format = "yyyy-MM-dd";
                     chartArea.AxisX.IntervalType = DateTimeIntervalType.Auto;
                     chartArea.AxisX.LabelStyle.Angle = -45;
+                    chartArea.AxisX.LabelStyle.Font = new Font("Arial", 8);
+                    chartArea.AxisY.LabelStyle.Font = new Font("Arial", 8);
 
                     int seriesIndex = 0;
                     foreach (var parameter in data)
                     {
-                        if (parameter.Value.Count > 0)
+                        if (parameter.Value.Item1.Count > 0)
                         {
                             Series series = new Series($"DataSeries{seriesIndex}")
                             {
                                 ChartType = SeriesChartType.Line,
                                 XValueType = ChartValueType.Date,
-                                LegendText = parameter.Key
+                                LegendText = parameter.Value.Item2
                             };
 
-                            foreach (var dataPoint in parameter.Value.OrderBy(d => d.date))
+                            foreach (var dataPoint in parameter.Value.Item1.OrderBy(d => d.date))
                             {
                                 series.Points.AddXY(dataPoint.date, dataPoint.value);
                             }
@@ -202,10 +215,10 @@ namespace MedRePar.Services
                     }
 
                     chart.Legends.Clear();
-                    chart.Legends.Add(new Legend());
+                    chart.Legends.Add(new Legend() { Font = new Font("Arial", 10) });
 
                     chart.Titles.Clear();
-                    chart.Titles.Add(new Title($"{category} - Composite Chart", Docking.Top, new Font("Arial", 12), Color.Black));
+                    chart.Titles.Add(new Title($"{category} - Composite Chart", Docking.Top, new Font("Arial", 14, FontStyle.Bold), Color.Black));
                 });
 
                 string imagePath = SaveChartAsImage(chart, $"{category}_Composite");
@@ -230,23 +243,20 @@ namespace MedRePar.Services
         {
             string directoryPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TrendCharts");
 
-            // Sanitize the chartName to create a valid file name
             string sanitizedChartName = string.Join("_", chartName.Split(Path.GetInvalidFileNameChars()));
 
             string imagePath = Path.Combine(directoryPath, $"TrendChart_{sanitizedChartName}_{Guid.NewGuid()}.png");
 
             try
             {
-                // Ensure the directory exists
                 Directory.CreateDirectory(directoryPath);
 
                 chart.Invoke((MethodInvoker)delegate
                 {
                     if (chart.Series.Count > 0 && chart.Series[0].Points.Count > 0)
                     {
-                        // Set a minimum size for the chart
-                        chart.Width = Math.Max(chart.Width, 800);
-                        chart.Height = Math.Max(chart.Height, 600);
+                        chart.Width = 1200;  // Increased width
+                        chart.Height = 800;  // Increased height
 
                         chart.SaveImage(imagePath, ChartImageFormat.Png);
                         LoggingService.LogInfo($"Chart image saved: {imagePath}");
@@ -271,11 +281,11 @@ namespace MedRePar.Services
         public static string SaveImagesAsPdf(List<string> imagePaths)
         {
             string directoryPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TrendCharts");
-            string pdfPath = Path.Combine(directoryPath, "TrendCharts.pdf");
+            string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmm");
+            string pdfPath = Path.Combine(directoryPath, $"HealthTrends_{timestamp}.pdf");
 
             try
             {
-                // Ensure the directory exists
                 Directory.CreateDirectory(directoryPath);
 
                 using (PdfDocument document = new PdfDocument())
