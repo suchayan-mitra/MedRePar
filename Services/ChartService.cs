@@ -2,12 +2,13 @@
 using System.Collections.Generic;
 using System.Data.SQLite;
 using System.Drawing;
-using System.Drawing.Imaging;
-using System.IO;
+using System.Linq;
+using System.Windows.Forms;
 using System.Windows.Forms.DataVisualization.Charting;
 using PdfSharp.Drawing;
 using PdfSharp.Pdf;
 using System.Diagnostics;
+using System.IO;
 
 namespace MedRePar.Services
 {
@@ -19,115 +20,17 @@ namespace MedRePar.Services
 
             try
             {
-                foreach (var parameter in parameters)
+                var dataByCategory = GetDataByCategory(dbPath, parameters, runId);
+
+                foreach (var category in dataByCategory)
                 {
-                    Dictionary<string, List<(DateTime date, double value)>> dataPointsByCategory = new Dictionary<string, List<(DateTime date, double value)>>();
+                    GenerateCategoryChart(category.Key, category.Value, chart, imagePaths);
+                }
 
-                    using (SQLiteConnection conn = new SQLiteConnection($"Data Source={dbPath};Version=3;"))
-                    {
-                        conn.Open();
-                        string sql = @"
-                    SELECT medical_data.date, medical_data.value, categories.name as category
-                    FROM medical_data
-                    INNER JOIN parameters ON medical_data.parameter_id = parameters.id
-                    INNER JOIN categories ON parameters.category_id = categories.id
-                    WHERE parameters.name LIKE @parameter AND medical_data.run_id = @run_id 
-                    ORDER BY medical_data.date";
-
-                        LoggingService.LogInfo($"Executing SQL Query: {sql}");
-                        SQLiteCommand command = new SQLiteCommand(sql, conn);
-                        command.Parameters.AddWithValue("@parameter", "%" + parameter + "%");
-                        command.Parameters.AddWithValue("@run_id", runId);
-
-                        LoggingService.LogInfo($"Parameter: {parameter}");
-                        LoggingService.LogInfo($"Run ID: {runId}");
-
-                        SQLiteDataReader reader = command.ExecuteReader();
-
-                        LoggingService.LogInfo("Retrieved Data Points:");
-                        while (reader.Read())
-                        {
-                            DateTime date = DateTime.Parse(reader["date"].ToString());
-                            string rawValue = reader["value"].ToString();
-                            double value;
-                            if (!TryParseDouble(rawValue, out value))
-                            {
-                                LoggingService.LogWarn($"Skipping invalid value: {rawValue}");
-                                continue;
-                            }
-                            string category = reader["category"].ToString();
-
-                            if (!dataPointsByCategory.ContainsKey(category))
-                            {
-                                dataPointsByCategory[category] = new List<(DateTime date, double value)>();
-                            }
-
-                            dataPointsByCategory[category].Add((date, value));
-                            LoggingService.LogInfo($"Category: {category}, Date: {date}, Value: {value}");
-                        }
-                    }
-
-                    if (dataPointsByCategory.Count == 0)
-                    {
-                        LoggingService.LogInfo("No data points retrieved for the specified parameter and run ID.");
-                        continue;
-                    }
-
-                    // Use BeginInvoke to ensure the chart update is performed on the UI thread
-                    chart.BeginInvoke(new Action(() =>
-                    {
-                        chart.Series.Clear();
-                        chart.ChartAreas.Clear();
-                        ChartArea chartArea = new ChartArea("MainArea");
-                        chart.ChartAreas.Add(chartArea);
-
-                        chartArea.AxisX.Title = "Date";
-                        chartArea.AxisY.Title = "Value";
-                        chartArea.AxisX.LabelStyle.Format = "yyyy-MM-dd";
-                        chartArea.AxisX.IntervalType = DateTimeIntervalType.Days;
-                        chartArea.AxisX.Interval = 1;
-                        chartArea.AxisX.LabelStyle.Angle = -45;
-                        chartArea.AxisX.LabelStyle.IsEndLabelVisible = true;
-
-                        foreach (var category in dataPointsByCategory.Keys)
-                        {
-                            Series series = new Series($"{category} - {parameter}")
-                            {
-                                ChartType = SeriesChartType.Line,
-                                XValueType = ChartValueType.Date
-                            };
-
-                            foreach (var dataPoint in dataPointsByCategory[category])
-                            {
-                                series.Points.AddXY(dataPoint.date, dataPoint.value);
-                                LoggingService.LogInfo($"Plotting: {category} - Date: {dataPoint.date}, Value: {dataPoint.value}");
-                            }
-
-                            chart.Series.Add(series);
-                        }
-
-                        chart.Legends.Clear();
-                        Legend legend = new Legend
-                        {
-                            Docking = Docking.Bottom
-                        };
-                        chart.Legends.Add(legend);
-
-                        chart.Titles.Clear();
-                        chart.Titles.Add(new Title(parameter, Docking.Top, new Font("Verdana", 12), Color.Black));
-
-                        chart.Invalidate(); // Refresh the chart
-
-                        // Save the chart as an image
-                        string imagePath = SaveChartAsImage(chart);
-                        imagePaths.Add(imagePath);
-                        LoggingService.LogInfo($"Chart image saved at: {imagePath}");
-
-                        LoggingService.LogInfo("Trend chart generated and saved successfully.");
-                    }));
-
-                    // Wait a bit to ensure chart has been rendered and saved
-                    System.Threading.Thread.Sleep(1000);
+                // Generate composite chart for each category
+                foreach (var category in dataByCategory)
+                {
+                    GenerateCompositeChart(category.Key, category.Value, chart, imagePaths);
                 }
             }
             catch (Exception ex)
@@ -139,25 +42,247 @@ namespace MedRePar.Services
             return imagePaths;
         }
 
-        private static bool TryParseDouble(string input, out double result)
+        private static Dictionary<string, Dictionary<string, List<(DateTime date, double value)>>> GetDataByCategory(string dbPath, List<string> parameters, string runId)
         {
-            input = new string(input.Where(c => char.IsDigit(c) || c == '.' || c == '-').ToArray());
-            return double.TryParse(input, out result);
+            var dataByCategory = new Dictionary<string, Dictionary<string, List<(DateTime date, double value)>>>();
+
+            using (SQLiteConnection conn = new SQLiteConnection($"Data Source={dbPath};Version=3;"))
+            {
+                conn.Open();
+                string sql = @"
+                    SELECT medical_data.date, medical_data.value, parameters.name as parameter, categories.name as category
+                    FROM medical_data
+                    INNER JOIN parameters ON medical_data.parameter_id = parameters.id
+                    INNER JOIN categories ON parameters.category_id = categories.id
+                    WHERE parameters.name LIKE @parameter AND medical_data.run_id = @run_id 
+                    ORDER BY medical_data.date";
+
+                foreach (var parameter in parameters)
+                {
+                    SQLiteCommand command = new SQLiteCommand(sql, conn);
+                    command.Parameters.AddWithValue("@parameter", "%" + parameter + "%");
+                    command.Parameters.AddWithValue("@run_id", runId);
+
+                    SQLiteDataReader reader = command.ExecuteReader();
+
+                    while (reader.Read())
+                    {
+                        DateTime date = DateTime.Parse(reader["date"].ToString());
+                        string rawValue = reader["value"].ToString();
+                        string parameterName = reader["parameter"].ToString();
+                        string category = reader["category"].ToString();
+
+                        if (double.TryParse(rawValue.Split(' ')[0], out double value))
+                        {
+                            if (!dataByCategory.ContainsKey(category))
+                            {
+                                dataByCategory[category] = new Dictionary<string, List<(DateTime date, double value)>>();
+                            }
+                            if (!dataByCategory[category].ContainsKey(parameterName))
+                            {
+                                dataByCategory[category][parameterName] = new List<(DateTime date, double value)>();
+                            }
+                            dataByCategory[category][parameterName].Add((date, value));
+                        }
+                        else
+                        {
+                            LoggingService.LogWarn($"Non-numeric value for {parameterName}: {rawValue}");
+                        }
+                    }
+                }
+            }
+
+            return dataByCategory;
         }
 
-
-
-        public static string SaveImagesAsPdf(List<string> imagePaths)
+        private static void GenerateCategoryChart(string category, Dictionary<string, List<(DateTime date, double value)>> data, Chart chart, List<string> imagePaths)
         {
-            string pdfPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TrendCharts.pdf");
+            foreach (var parameter in data)
+            {
+                if (parameter.Value.Count == 0)
+                {
+                    LoggingService.LogWarn($"No valid numeric data points for {category} - {parameter.Key}. Skipping chart generation.");
+                    continue;
+                }
+
+                try
+                {
+                    chart.Invoke((MethodInvoker)delegate
+                    {
+                        chart.Series.Clear();
+                        chart.ChartAreas.Clear();
+                        ChartArea chartArea = new ChartArea("MainArea");
+                        chart.ChartAreas.Add(chartArea);
+
+                        chartArea.AxisX.Title = "Date";
+                        chartArea.AxisY.Title = "Value";
+                        chartArea.AxisX.LabelStyle.Format = "yyyy-MM-dd";
+                        chartArea.AxisX.IntervalType = DateTimeIntervalType.Auto;
+                        chartArea.AxisX.LabelStyle.Angle = -45;
+
+                        Series series = new Series("DataSeries")
+                        {
+                            ChartType = SeriesChartType.Line,
+                            XValueType = ChartValueType.Date
+                        };
+
+                        foreach (var dataPoint in parameter.Value.OrderBy(d => d.date))
+                        {
+                            series.Points.AddXY(dataPoint.date, dataPoint.value);
+                        }
+
+                        chart.Series.Add(series);
+
+                        chart.Titles.Clear();
+                        chart.Titles.Add(new Title($"{category} - {parameter.Key}", Docking.Top, new Font("Arial", 12), Color.Black));
+                    });
+
+                    string imagePath = SaveChartAsImage(chart, $"{category}_{parameter.Key}");
+                    if (!string.IsNullOrEmpty(imagePath))
+                    {
+                        imagePaths.Add(imagePath);
+                        LoggingService.LogInfo($"Chart generated for {category} - {parameter.Key}");
+                    }
+                    else
+                    {
+                        LoggingService.LogWarn($"Failed to generate chart for {category} - {parameter.Key}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    LoggingService.LogError($"Error generating chart for {category} - {parameter.Key}: {ex.Message}");
+                    LoggingService.LogError($"Stack Trace: {ex.StackTrace}");
+                }
+            }
+        }
+
+        private static void GenerateCompositeChart(string category, Dictionary<string, List<(DateTime date, double value)>> data, Chart chart, List<string> imagePaths)
+        {
+            if (data.All(d => d.Value.Count == 0))
+            {
+                LoggingService.LogWarn($"No valid numeric data points for any parameter in {category}. Skipping composite chart generation.");
+                return;
+            }
 
             try
             {
+                chart.Invoke((MethodInvoker)delegate
+                {
+                    chart.Series.Clear();
+                    chart.ChartAreas.Clear();
+                    ChartArea chartArea = new ChartArea("MainArea");
+                    chart.ChartAreas.Add(chartArea);
+
+                    chartArea.AxisX.Title = "Date";
+                    chartArea.AxisY.Title = "Value";
+                    chartArea.AxisX.LabelStyle.Format = "yyyy-MM-dd";
+                    chartArea.AxisX.IntervalType = DateTimeIntervalType.Auto;
+                    chartArea.AxisX.LabelStyle.Angle = -45;
+
+                    int seriesIndex = 0;
+                    foreach (var parameter in data)
+                    {
+                        if (parameter.Value.Count > 0)
+                        {
+                            Series series = new Series($"DataSeries{seriesIndex}")
+                            {
+                                ChartType = SeriesChartType.Line,
+                                XValueType = ChartValueType.Date,
+                                LegendText = parameter.Key
+                            };
+
+                            foreach (var dataPoint in parameter.Value.OrderBy(d => d.date))
+                            {
+                                series.Points.AddXY(dataPoint.date, dataPoint.value);
+                            }
+
+                            chart.Series.Add(series);
+                            seriesIndex++;
+                        }
+                    }
+
+                    chart.Legends.Clear();
+                    chart.Legends.Add(new Legend());
+
+                    chart.Titles.Clear();
+                    chart.Titles.Add(new Title($"{category} - Composite Chart", Docking.Top, new Font("Arial", 12), Color.Black));
+                });
+
+                string imagePath = SaveChartAsImage(chart, $"{category}_Composite");
+                if (!string.IsNullOrEmpty(imagePath))
+                {
+                    imagePaths.Add(imagePath);
+                    LoggingService.LogInfo($"Composite chart generated for {category}");
+                }
+                else
+                {
+                    LoggingService.LogWarn($"Failed to generate composite chart for {category}");
+                }
+            }
+            catch (Exception ex)
+            {
+                LoggingService.LogError($"Error generating composite chart for {category}: {ex.Message}");
+                LoggingService.LogError($"Stack Trace: {ex.StackTrace}");
+            }
+        }
+
+        private static string SaveChartAsImage(Chart chart, string chartName)
+        {
+            string directoryPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TrendCharts");
+
+            // Sanitize the chartName to create a valid file name
+            string sanitizedChartName = string.Join("_", chartName.Split(Path.GetInvalidFileNameChars()));
+
+            string imagePath = Path.Combine(directoryPath, $"TrendChart_{sanitizedChartName}_{Guid.NewGuid()}.png");
+
+            try
+            {
+                // Ensure the directory exists
+                Directory.CreateDirectory(directoryPath);
+
+                chart.Invoke((MethodInvoker)delegate
+                {
+                    if (chart.Series.Count > 0 && chart.Series[0].Points.Count > 0)
+                    {
+                        // Set a minimum size for the chart
+                        chart.Width = Math.Max(chart.Width, 800);
+                        chart.Height = Math.Max(chart.Height, 600);
+
+                        chart.SaveImage(imagePath, ChartImageFormat.Png);
+                        LoggingService.LogInfo($"Chart image saved: {imagePath}");
+                    }
+                    else
+                    {
+                        LoggingService.LogWarn($"Chart {chartName} has no valid points to plot.");
+                        imagePath = null;
+                    }
+                });
+
+                return imagePath;
+            }
+            catch (Exception ex)
+            {
+                LoggingService.LogError($"Error saving chart image for {chartName}: {ex.Message}");
+                LoggingService.LogError($"Stack Trace: {ex.StackTrace}");
+                return null;
+            }
+        }
+
+        public static string SaveImagesAsPdf(List<string> imagePaths)
+        {
+            string directoryPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TrendCharts");
+            string pdfPath = Path.Combine(directoryPath, "TrendCharts.pdf");
+
+            try
+            {
+                // Ensure the directory exists
+                Directory.CreateDirectory(directoryPath);
+
                 using (PdfDocument document = new PdfDocument())
                 {
                     foreach (var imagePath in imagePaths)
                     {
-                        if (!string.IsNullOrEmpty(imagePath))
+                        if (!string.IsNullOrEmpty(imagePath) && File.Exists(imagePath))
                         {
                             PdfPage page = document.AddPage();
                             XGraphics gfx = XGraphics.FromPdfPage(page);
@@ -175,7 +300,6 @@ namespace MedRePar.Services
                 throw;
             }
 
-            // Delete the temporary image files
             DeleteTemporaryFiles(imagePaths);
 
             return pdfPath;
@@ -183,41 +307,44 @@ namespace MedRePar.Services
 
         private static void DeleteTemporaryFiles(List<string> imagePaths)
         {
-            try
+            foreach (var imagePath in imagePaths)
             {
-                foreach (var imagePath in imagePaths)
+                if (File.Exists(imagePath))
                 {
-                    if (File.Exists(imagePath))
+                    try
                     {
                         File.Delete(imagePath);
                         LoggingService.LogInfo($"Deleted temporary file: {imagePath}");
                     }
+                    catch (Exception ex)
+                    {
+                        LoggingService.LogError($"Error deleting temporary file {imagePath}: {ex.Message}");
+                    }
                 }
             }
-            catch (Exception ex)
-            {
-                LoggingService.LogError("Error deleting temporary files", ex);
-                throw;
-            }
-        }
-
-        private static string SaveChartAsImage(Chart chart)
-        {
-            string imagePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, $"TrendChart_{Guid.NewGuid()}.png");
-            chart.SaveImage(imagePath, ChartImageFormat.Png);
-            return imagePath;
         }
 
         public static void OpenPdf(string pdfPath)
         {
             if (File.Exists(pdfPath))
             {
-                Process.Start(new ProcessStartInfo
+                try
                 {
-                    FileName = pdfPath,
-                    UseShellExecute = true,
-                    Verb = "open"
-                });
+                    Process.Start(new ProcessStartInfo
+                    {
+                        FileName = pdfPath,
+                        UseShellExecute = true,
+                        Verb = "open"
+                    });
+                }
+                catch (Exception ex)
+                {
+                    LoggingService.LogError($"Error opening PDF {pdfPath}: {ex.Message}");
+                }
+            }
+            else
+            {
+                LoggingService.LogWarn($"PDF file not found: {pdfPath}");
             }
         }
     }
