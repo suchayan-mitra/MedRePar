@@ -33,6 +33,11 @@ namespace MedRePar.Services
             Logger.Warn(message);
         }
 
+        public static void LogWarning(string message)
+        {
+            Logger.Warn(message);
+        }
+
         public static void LogDictionary(string title, Dictionary<string, string> dictionary)
         {
             Logger.Info($"{title}:");

@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<configuration>
+  <!--
+    ====================================
+    MEDICAL REPORT PARSER - CONFIGURATION TEMPLATE
+    ====================================
+
+    IMPORTANT: This is a template file. To use this application:
+    1. Copy this file to "App.config" (without .template)
+    2. Replace all placeholder values with your actual credentials
+    3. Never commit App.config to version control (it's in .gitignore)
+
+    ====================================
+    REQUIRED CONFIGURATION
+    ====================================
+  -->
+
+  <configSections>
+    <section name="aiModelsSection" type="System.Configuration.NameValueSectionHandler" />
+  </configSections>
+
+  <!--
+    ====================================
+    AI MODEL CONFIGURATION (REQUIRED)
+    ====================================
+
+    You MUST configure at least ONE of the following AI models:
+
+    Option 1: Azure OpenAI (Recommended for enterprise/production)
+    Option 2: Standard OpenAI (Good for development/testing)
+  -->
+
+  <aiModelsSection>
+    <!--
+      AZURE OPENAI CONFIGURATION
+      Format: https://[resource-name].openai.azure.com/;[api-key];[deployment-name];[api-version]
+
+      To get these values:
+      1. Go to Azure Portal: https://portal.azure.com
+      2. Navigate to your Azure OpenAI resource
+      3. Get Endpoint: From "Keys and Endpoint" page (e.g., https://my-resource.openai.azure.com/)
+      4. Get API Key: From "Keys and Endpoint" page (Key 1 or Key 2)
+      5. Get Deployment Name: From "Model deployments" page (the name you gave when deploying a model)
+      6. API Version: Usually "2024-05-01" or latest from docs
+
+      Recommended models: gpt-4, gpt-4-turbo, gpt-35-turbo
+    -->
+    <add key="AzureOpenAI" value="https://YOUR-RESOURCE-NAME.openai.azure.com/;YOUR-API-KEY-HERE;YOUR-DEPLOYMENT-NAME;2024-05-01" />
+
+    <!--
+      STANDARD OPENAI CONFIGURATION
+      Format: https://api.openai.com/v1/chat/completions;sk-[your-api-key]
+
+      To get API key:
+      1. Go to https://platform.openai.com/account/api-keys
+      2. Create a new API key
+      3. Copy the key (starts with "sk-")
+
+      Note: This will use the model specified in OpenAIConfig.cs (default: gpt-4)
+    -->
+    <add key="OpenAI" value="https://api.openai.com/v1/chat/completions;sk-YOUR-OPENAI-API-KEY-HERE" />
+  </aiModelsSection>
+
+  <!--
+    ====================================
+    AZURE DOCUMENT INTELLIGENCE (OPTIONAL)
+    ====================================
+
+    This enables OCR for scanned medical reports.
+    If not configured, the app will only extract text from digital PDFs.
+
+    To enable OCR:
+    1. Create Azure Document Intelligence resource: https://portal.azure.com
+    2. Navigate to "Keys and Endpoint"
+    3. Copy Endpoint and API Key
+    4. Uncomment and fill the values below
+
+    Cost: ~$1.50 per 1000 pages
+    Recommended for production with scanned documents
+  -->
+
+  <appSettings>
+    <!-- Uncomment these lines and add your Azure Document Intelligence credentials -->
+    <!--
+    <add key="AzureDocumentIntelligenceEndpoint" value="https://YOUR-RESOURCE-NAME.cognitiveservices.azure.com/" />
+    <add key="AzureDocumentIntelligenceApiKey" value="YOUR-DOCUMENT-INTELLIGENCE-API-KEY" />
+    -->
+  </appSettings>
+
+  <!--
+    ====================================
+    EXAMPLE COMPLETE CONFIGURATION
+    ====================================
+
+    Below is an example of a fully configured App.config:
+
+    <aiModelsSection>
+      <add key="AzureOpenAI" value="https://my-openai.openai.azure.com/;abc123xyz789;gpt-4-deployment;2024-05-01" />
+      <add key="OpenAI" value="https://api.openai.com/v1/chat/completions;sk-proj-abc123xyz789" />
+    </aiModelsSection>
+
+    <appSettings>
+      <add key="AzureDocumentIntelligenceEndpoint" value="https://my-doc-intel.cognitiveservices.azure.com/" />
+      <add key="AzureDocumentIntelligenceApiKey" value="abc123xyz789" />
+    </appSettings>
+  -->
+
+</configuration>
